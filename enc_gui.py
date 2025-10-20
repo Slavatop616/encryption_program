@@ -6,6 +6,7 @@ GUI версия программы для шифрования и дешифр�
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import os
+import sys
 import base64
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
@@ -107,35 +108,49 @@ class EncryptionApp:
     
     def refresh_public_keys(self):
         """Обновление списка публичных ключей"""
-        pubkeys_dir = "pubkeys"
+        # Получаем директорию, где находится скрипт
+        script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+        pubkeys_dir = os.path.join(script_dir, "pubkeys")
         if not os.path.exists(pubkeys_dir):
             os.makedirs(pubkeys_dir)
         
         public_keys = []
         for file in os.listdir(pubkeys_dir):
             if file.endswith(".pem"):
-                public_keys.append(os.path.join(pubkeys_dir, file))
+                # Сохраняем как кортеж (отображаемое имя, полный путь)
+                full_path = os.path.join(pubkeys_dir, file)
+                public_keys.append((file, full_path))
         
-        self.public_key_combo['values'] = public_keys
-        if public_keys:
-            self.public_key_combo.set(public_keys[0])
+        # Отображаем только имена файлов
+        display_names = [item[0] for item in public_keys]
+        self.public_key_combo['values'] = display_names
+        self.public_key_full_paths = {item[0]: item[1] for item in public_keys}  # Словарь для получения полного пути по имени
+        if display_names:
+            self.public_key_combo.set(display_names[0])
         else:
             self.public_key_combo.set("")
     
     def refresh_private_keys(self):
         """Обновление списка приватных ключей"""
-        privatekeys_dir = "privatekeys"
+        # Получаем директорию, где находится скрипт
+        script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+        privatekeys_dir = os.path.join(script_dir, "privatekeys")
         if not os.path.exists(privatekeys_dir):
             os.makedirs(privatekeys_dir)
         
         private_keys = []
         for file in os.listdir(privatekeys_dir):
             if file.endswith(".pem"):
-                private_keys.append(os.path.join(privatekeys_dir, file))
+                # Сохраняем как кортеж (отображаемое имя, полный путь)
+                full_path = os.path.join(privatekeys_dir, file)
+                private_keys.append((file, full_path))
         
-        self.private_key_combo['values'] = private_keys
-        if private_keys:
-            self.private_key_combo.set(private_keys[0])
+        # Отображаем только имена файлов
+        display_names = [item[0] for item in private_keys]
+        self.private_key_combo['values'] = display_names
+        self.private_key_full_paths = {item[0]: item[1] for item in private_keys}  # Словарь для получения полного пути по имени
+        if display_names:
+            self.private_key_combo.set(display_names[0])
         else:
             self.private_key_combo.set("")
     
@@ -165,13 +180,18 @@ class EncryptionApp:
             
             public_key = private_key.public_key()
             
+            # Получаем директорию, где находится скрипт
+            script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+            
             # Создаем директории, если не существуют
-            os.makedirs('privatekeys', exist_ok=True)
-            os.makedirs('pubkeys', exist_ok=True)
+            privatekeys_dir = os.path.join(script_dir, 'privatekeys')
+            pubkeys_dir = os.path.join(script_dir, 'pubkeys')
+            os.makedirs(privatekeys_dir, exist_ok=True)
+            os.makedirs(pubkeys_dir, exist_ok=True)
             
             # Сохраняем приватный ключ в директорию privatekeys
             private_key_filename = f"private_key_{secrets.token_hex(4)}.pem"
-            private_key_path = os.path.join('privatekeys', private_key_filename)
+            private_key_path = os.path.join(privatekeys_dir, private_key_filename)
             
             with open(private_key_path, 'wb') as f:
                 f.write(private_key.private_bytes(
@@ -212,12 +232,20 @@ class EncryptionApp:
         """Выполнение шифрования"""
         try:
             # Проверяем выбран ли ключ
-            public_key_path = self.public_key_var.get()
-            if not public_key_path:
+            public_key_display_name = self.public_key_var.get()
+            if not public_key_display_name:
                 messagebox.showerror("Ошибка", "Пожалуйста, выберите публичный ключ")
                 return
             
+            # Получаем полный путь к ключу по отображаемому имени
+            public_key_path = self.public_key_full_paths.get(public_key_display_name, public_key_display_name)
+            
             # Загружаем публичный ключ
+            # Если путь к ключу не является абсолютным, предполагаем что он относительный и добавляем путь к скрипту
+            if not os.path.isabs(public_key_path):
+                script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+                public_key_path = os.path.join(script_dir, public_key_path)
+                
             with open(public_key_path, 'rb') as f:
                 public_key = serialization.load_pem_public_key(
                     f.read(),
@@ -250,12 +278,24 @@ class EncryptionApp:
                 result_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
                 result_text.insert(tk.END, encrypted_b64)
                 
-                # Делаем текст доступным для выделения и копирования, но не для редактирования
-                result_text.config(state=tk.NORMAL)  # Устанавливаем нормальное состояние
+                # Выделяем весь текст для удобства копирования
                 result_text.tag_add(tk.SEL, "1.0", tk.END)  # Выделяем весь текст для удобства копирования
                 result_text.tag_config(tk.SEL, background="lightblue")  # Устанавливаем цвет выделения
                 result_text.mark_set(tk.INSERT, "1.0")  # Устанавливаем курсор в начало
-                result_text.config(state=tk.DISABLED)  # Делаем текст только для чтения
+                
+                # Блокируем вставку текста, чтобы предотвратить редактирование
+                def limit_input(event):
+                    # Разрешаем только копирование (Ctrl+C, Ctrl+Insert), вырезание (Ctrl+X) и другие системные команды
+                    if event.state & 0x4:  # Ctrl is pressed
+                        if event.keysym in ['c', 'C', 'Insert', 'x', 'X']:
+                            return None  # Allow copying, cutting
+                    if event.keysym in ['Up', 'Down', 'Left', 'Right', 'Home', 'End', 'Prior', 'Next']:  # Navigation keys
+                        return None
+                    if event.keysym in ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12']:  # Function keys
+                        return None
+                    return "break"  # Block all other input
+                
+                result_text.bind("<KeyPress>", limit_input)
                 
                 # Привязываем обработчик для разрешения копирования (Ctrl+C)
                 def copy_text(event):
@@ -311,12 +351,20 @@ class EncryptionApp:
         """Выполнение дешифрования"""
         try:
             # Проверяем выбран ли ключ
-            private_key_path = self.private_key_var.get()
-            if not private_key_path:
+            private_key_display_name = self.private_key_var.get()
+            if not private_key_display_name:
                 messagebox.showerror("Ошибка", "Пожалуйста, выберите приватный ключ")
                 return
             
+            # Получаем полный путь к ключу по отображаемому имени
+            private_key_path = self.private_key_full_paths.get(private_key_display_name, private_key_display_name)
+            
             # Загружаем приватный ключ
+            # Если путь к ключу не является абсолютным, предполагаем что он относительный и добавляем путь к скрипту
+            if not os.path.isabs(private_key_path):
+                script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+                private_key_path = os.path.join(script_dir, private_key_path)
+                
             with open(private_key_path, 'rb') as f:
                 private_key = serialization.load_pem_private_key(
                     f.read(),
@@ -356,12 +404,24 @@ class EncryptionApp:
                 result_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
                 result_text.insert(tk.END, decrypted_text)
                 
-                # Делаем текст доступным для выделения и копирования, но не для редактирования
-                result_text.config(state=tk.NORMAL)  # Устанавливаем нормальное состояние
+                # Выделяем весь текст для удобства копирования
                 result_text.tag_add(tk.SEL, "1.0", tk.END)  # Выделяем весь текст для удобства копирования
                 result_text.tag_config(tk.SEL, background="lightblue")  # Устанавливаем цвет выделения
                 result_text.mark_set(tk.INSERT, "1.0")  # Устанавливаем курсор в начало
-                result_text.config(state=tk.DISABLED)  # Делаем текст только для чтения
+                
+                # Блокируем вставку текста, чтобы предотвратить редактирование
+                def limit_input(event):
+                    # Разрешаем только копирование (Ctrl+C, Ctrl+Insert), вырезание (Ctrl+X) и другие системные команды
+                    if event.state & 0x4:  # Ctrl is pressed
+                        if event.keysym in ['c', 'C', 'Insert', 'x', 'X']:
+                            return None  # Allow copying, cutting
+                    if event.keysym in ['Up', 'Down', 'Left', 'Right', 'Home', 'End', 'Prior', 'Next']:  # Navigation keys
+                        return None
+                    if event.keysym in ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12']:  # Function keys
+                        return None
+                    return "break"  # Block all other input
+                
+                result_text.bind("<KeyPress>", limit_input)
                 
                 # Привязываем обработчик для разрешения копирования (Ctrl+C)
                 def copy_text(event):
